@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>👍 👎 Thumb Detector</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            margin: 0;
+            padding: 20px;
+        }
+        h1 { font-size: 2.5em; margin: 20px 0; }
+        button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            margin: 20px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+        }
+        button:hover { background: #45a049; transform: scale(1.05); }
+        button:disabled { background: #666; cursor: not-allowed; transform: none; }
+        #webcam-container {
+            margin: 30px auto;
+            border: 5px solid rgba(255,255,255,0.3);
+            border-radius: 15px;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        #result {
+            font-size: 3em;
+            font-weight: bold;
+            margin: 30px 0;
+            min-height: 80px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-direction: column;
+        }
+        .confidence-high { color: #4CAF50; text-shadow: 0 0 20px #4CAF50; }
+        .confidence-med { color: #FF9800; }
+        .confidence-low { color: #f44336; }
+        #status { font-size: 1.2em; margin: 20px; }
+        .emoji { font-size: 2em; margin: 0 10px; }
+    </style>
+</head>
+<body>
+    <h1><span class="emoji">👍</span> Thumb Detector <span class="emoji">👎</span></h1>
+    
+    <div id="status">Checking files...</div>
+    <button id="startBtn" onclick="init()">🚀 Start Detection</button>
+    
+    <div id="webcam-container"></div>
+    <div id="result">Waiting for camera...</div>
+
+    <!-- ✅ CORRECT LIBRARIES -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.5.1/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@0.8/dist/teachablemachine-image.min.js"></script>
+
+    <script>
+        let model, webcam, maxPredictions;
+        const startBtn = document.getElementById('startBtn');
+        const statusDiv = document.getElementById('status');
+
+        // 🔍 FILE CHECK
+        function checkFiles() {
+            fetch('./model/model.json')
+                .then(r => {
+                    if (r.ok) {
+                        statusDiv.innerHTML = '✅ model.json <span style="color:#4CAF50">FOUND</span>';
+                        return fetch('./model/metadata.json');
+                    } else {
+                        throw new Error('model.json 404');
+                    }
+                })
+                .then(r => {
+                    if (r.ok) {
+                        statusDiv.innerHTML += ' | ✅ metadata.json <span style="color:#4CAF50">FOUND</span>';
+                        startBtn.disabled = false;
+                        startBtn.innerHTML = '🚀 Start Detection';
+                    } else {
+                        throw new Error('metadata.json 404');
+                    }
+                })
+                .catch(e => {
+                    statusDiv.innerHTML = `❌ <strong>MISSING FILES:</strong><br>${e.message}<br><br>`;
+                    statusDiv.innerHTML += `<small>📁 Put model.json + metadata.json in <code>model/</code> folder</small>`;
+                    startBtn.disabled = true;
+                    startBtn.innerHTML = '❌ Fix Files First';
+                });
+        }
+
+        // 🔥 MAIN INIT
+        async function init() {
+            try {
+                statusDiv.innerHTML = 'Loading AI model...';
+                startBtn.disabled = true;
+                startBtn.innerHTML = 'Loading...';
+
+                // YOUR MODEL FILES
+                const modelURL = './model/model.json';
+                const metadataURL = './model/metadata.json';
+
+                model = await tmImage.load(modelURL, metadataURL);
+                maxPredictions = model.getTotalClasses();
+
+                statusDiv.innerHTML = `✅ Model loaded! (${maxPredictions} classes)`;
+
+                // SETUP WEBCAM
+                webcam = new tmImage.Webcam(320, 240, true);
+                await webcam.setup();
+                await webcam.play();
+
+                document.getElementById('webcam-container').appendChild(webcam.canvas);
+                document.getElementById('result').innerText = '🎥 Show thumbs up/down!';
+
+                // START LOOP
+                window.requestAnimationFrame(loop);
+
+            } catch (error) {
+                console.error('Init error:', error);
+                statusDiv.innerHTML = `❌ Error: ${error.message}`;
+                startBtn.disabled = false;
+                startBtn.innerHTML = 'Try Again';
+                alert('Error: ' + error.message + '\n\nCheck console (F12)');
+            }
+        }
+
+        // 🔄 PREDICTION LOOP
+        async function loop() {
+            webcam.update();
+            await predict();
+            window.requestAnimationFrame(loop);
+        }
+
+        // 🤖 PREDICT
+        async function predict() {
+            try {
+                const prediction = await model.predict(webcam.canvas);
+
+                let best = prediction[0];
+                for (let i = 1; i < prediction.length; i++) {
+                    if (prediction[i].probability > best.probability) {
+                        best = prediction[i];
+                    }
+                }
+
+                const confidence = (best.probability * 100).toFixed(1);
+                let confidenceClass = 'confidence-low';
+                if (confidence > 70) confidenceClass = 'confidence-high';
+                else if (confidence > 50) confidenceClass = 'confidence-med';
+
+                document.getElementById('result').innerHTML = 
+                    `<span style="font-size: 4em;">${best.className}</span>
+                     <div class="${confidenceClass}" style="font-size: 1.5em; margin-top: 10px;">
+                         ${confidence}% confident
+                     </div>`;
+
+            } catch (error) {
+                console.error('Predict error:', error);
+            }
+        }
+
+        // 📱 PAGE LOAD
+        window.onload = checkFiles;
+    </script>
+</body>
+</html>
